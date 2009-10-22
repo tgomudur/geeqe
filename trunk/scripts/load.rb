@@ -82,39 +82,75 @@ class PostCallbacks
   include XML::SaxParser::Callbacks
 
   @my
-  @st
+  @post_st
+  @tag_insert_st
+  @tag_select_st
 
   def initialize(my)
     @my = my
-    @st = @my.prepare("insert into post(id, post_type_id, accepted_answer_id, parent_id, score, view_count, body_text, owner_id, last_editor_user_id, last_editor_display_name, last_edit_date, last_activity_date, title, tags, answer_count, comment_count, favorite_count, created) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    @post_st = @my.prepare("insert into post(id, post_type_id, accepted_answer_id, parent_id, score, view_count, body_text, owner_id, last_editor_user_id, last_editor_display_name, last_edit_date, last_activity_date, title, answer_count, comment_count, favorite_count, created) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    @tag_insert_st = @my.prepare("insert into tag(name) values(?)")
+    @tag_select_st = @my.prepare("select id from tag where name = ?")
+    @post_ot_tag_insert_st = @my.prepare("insert into post_to_tag(post_id, tag_id) values(?, ?)")
   end
 
   def on_start_element(element, attributes)
     if element == 'row'
-      @st.execute(attributes['Id'], attributes['PostTypeId'], attributes['AcceptedAnswerId'], attributes['ParentId'], attributes['Score'], attributes['ViewCount'], attributes['Body'], attributes['OwnerUserId'] == nil ? -1 : attributes['OwnerUserId'], attributes['LastEditorUserId'], attributes['LastEditorDisplayName'], attributes['LastEditDate'], attributes['LastActivityDate'], attributes['Title'] == nil ? '' : attributes['Title'], attributes['Tags'] == nil ? '' : attributes['Tags'], attributes['AnswerCount'] == nil ? 0 : attributes['AnswerCount'], attributes['CommentCount'] == nil ? 0 : attributes['CommentCount'], attributes['FavoriteCount'] == nil ? 0 : attributes['FavoriteCount'], attributes['CreationDate'])
+      @post_st.execute(attributes['Id'], attributes['PostTypeId'], attributes['AcceptedAnswerId'], attributes['ParentId'], attributes['Score'], attributes['ViewCount'], attributes['Body'], attributes['OwnerUserId'] == nil ? -1 : attributes['OwnerUserId'], attributes['LastEditorUserId'], attributes['LastEditorDisplayName'], attributes['LastEditDate'], attributes['LastActivityDate'], attributes['Title'] == nil ? '' : attributes['Title'], attributes['AnswerCount'] == nil ? 0 : attributes['AnswerCount'], attributes['CommentCount'] == nil ? 0 : attributes['CommentCount'], attributes['FavoriteCount'] == nil ? 0 : attributes['FavoriteCount'], attributes['CreationDate'])
+      post_id = attributes['Id']
+      
+      tags = attributes['Tags'] == nil ? '' : attributes['Tags']
+      tags.scan(/<(.*?)>/).each do |tag_name|
+        tag_id = insert_or_find_tag(tag_name[0])
+        @post_ot_tag_insert_st.execute(post_id, tag_id)
+      end
+    end
+  end
+
+  def insert_or_find_tag(tag_name)
+    @tag_select_st.execute(tag_name)
+    if @tag_select_st.num_rows > 0
+      @tag_select_st.fetch[0]
+    else
+      @tag_insert_st.execute(tag_name)
+      @tag_insert_st.insert_id
     end
   end
 end
 
+if ARGV.size != 5
+  puts "Usage load.rb <XML file path> <db host> <db user> <db pass> <db name>"
+  exit 1
+end
 
-my = Mysql::new("localhost", "username", "password", "so_database")
+my = Mysql::new(ARGV[1], ARGV[2], ARGV[3], ARGV[4])
 
-parser = XML::SaxParser.file('badges.xml')
+puts "Loading badges"
+
+parser = XML::SaxParser.file(ARGV[0] + '/badges.xml')
 parser.callbacks = BadgeCallbacks.new(my)
 parser.parse
 
-parser = XML::SaxParser.file('comments.xml')
+puts "Loading comments"
+
+parser = XML::SaxParser.file(ARGV[0] + '/comments.xml')
 parser.callbacks = CommentCallbacks.new(my)
 parser.parse
 
-parser = XML::SaxParser.file('votes.xml')
+puts "Loading votes"
+
+parser = XML::SaxParser.file(ARGV[0] + '/votes.xml')
 parser.callbacks = VoteCallbacks.new(my)
 parser.parse
 
-parser = XML::SaxParser.file('users.xml')
+puts "Loading users"
+
+parser = XML::SaxParser.file(ARGV[0] + '/users.xml')
 parser.callbacks = UserCallbacks.new(my)
 parser.parse
 
-parser = XML::SaxParser.file('posts.xml')
+puts "Loading posts"
+
+parser = XML::SaxParser.file(ARGV[0] + '/posts.xml')
 parser.callbacks = PostCallbacks.new(my)
 parser.parse
